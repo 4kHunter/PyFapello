@@ -36,13 +36,6 @@ Optional argument -s or --save can be used to save the links to the database.
 - Downloads images and videos from fapello.com galleries.
 - Allows saving links to the database for backup and to download only new content.
 
-# Requirements
-
-- Python 3.x
-requests library
-tqdm library
-argparse library
-SQLite3 (for database functionality)
 
 # How It Works
 
