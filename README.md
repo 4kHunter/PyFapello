@@ -8,7 +8,7 @@ PyFapello is a Python script for downloading galleries of images/videos from fap
 To use PyFapello, follow these steps:
 1. Clone the repository:
 
-```
+
 2. Navigate to the project directory:
 
 ```bash
