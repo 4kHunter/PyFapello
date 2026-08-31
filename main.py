@@ -3,6 +3,7 @@ import asyncio
 from pathlib import Path
 from urllib.parse import urlparse
 
+from utils.database import Database
 from utils.downloaders import Downloader, media_seperation
 from utils.scrapers import FappeloScraper
 
@@ -34,16 +35,18 @@ async def main() -> None:
 
     print(f"Scraping {args.link} ...", flush=True)
     scraper = netlocs[parse_url.netloc](args.link)
-
-    if args.save:
-        urls = await scraper.save_to_database()
-    else:
-        urls = await scraper.fetch_urls()
+    urls = await scraper.fetch_urls()
 
     folder_path = Path(__file__).resolve().parent
     downloader = Downloader(urls, folder_path / Path(args.folder))
-    await downloader.download_all()
+    saved = await downloader.download_all()
     media_seperation(downloader.folder)
+
+    if args.save and saved:
+        with Database() as db:
+            db.insert_many(saved)
+        print(f"Recorded {len(saved)} new links in the database.", flush=True)
+
     print(f"Done. Files are in {downloader.folder}", flush=True)
 
 

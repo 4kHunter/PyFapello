@@ -31,13 +31,24 @@ class Database:
     def insert(self, link: str) -> None:
         self.cursor.execute(
             """
-            INSERT INTO fapello (link) VALUES (?)
+            INSERT OR IGNORE INTO fapello (link) VALUES (?)
             """,
             (link,),
         )
         self.connection.commit()
 
+    def insert_many(self, urls: list[str]) -> None:
+        self.cursor.executemany(
+            """
+            INSERT OR IGNORE INTO fapello (link) VALUES (?)
+            """,
+            [(url,) for url in urls],
+        )
+        self.connection.commit()
+
     def get_existing_urls(self, urls: list[str]) -> list[str]:
+        if not urls:
+            return []
         placeholders = ",".join("?" for _ in urls)
         query = f"SELECT link FROM fapello WHERE link IN ({placeholders})"  # noqa: S608
         self.cursor.execute(query, urls)

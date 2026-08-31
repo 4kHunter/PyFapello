@@ -4,7 +4,6 @@ import urllib.request
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
-from .database import Database
 
 HEADERS = {
     "User-Agent": (
@@ -111,14 +110,3 @@ class FappeloScraper:
             flush=True,
         )
         return image_urls + video_urls
-
-    async def save_to_database(self) -> list[str]:
-        urls = await self.fetch_urls()
-        if not urls:
-            return []
-        with Database() as db:
-            existing_urls = db.get_existing_urls(urls)
-            non_existing_urls = [url for url in urls if url not in existing_urls]
-            for filename in non_existing_urls:
-                db.insert(filename)
-        return non_existing_urls
