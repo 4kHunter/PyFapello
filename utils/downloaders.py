@@ -39,6 +39,17 @@ FILE_FORMATS = {
     },
 }
 
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "*/*",
+    "Referer": "https://fapello.com/",
+}
+TIMEOUT = aiohttp.ClientTimeout(total=120, sock_connect=10)
+
 
 def media_seperation(path: Path) -> None:
 
@@ -74,6 +85,9 @@ class Downloader:
         self, session: aiohttp.ClientSession, url: str
     ) -> bytes | None:
         response = await session.get(url)
+        if response.status != 200:
+            print(f"Skip {url}: HTTP {response.status}", flush=True)
+            return None
         total = int(response.headers.get("Content-Length", 0))
         downloaded = bytearray()
         with tqdm(
@@ -99,8 +113,11 @@ class Downloader:
 
     async def download_all(self) -> None:
         self.folder.mkdir(parents=True, exist_ok=True)
+        if not self.urls:
+            print("Nothing to download.", flush=True)
+            return
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(headers=HEADERS, timeout=TIMEOUT) as session:
             coros = [self.download_and_store(session, link) for link in self.urls]
             for func in tqdm(
                 asyncio.as_completed(coros), total=len(coros), desc="Processing"

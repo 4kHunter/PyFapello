@@ -32,6 +32,7 @@ async def main() -> None:
     if parse_url.netloc not in netlocs:
         raise ValueError(f"Invalid link: {args.link}")
 
+    print(f"Scraping {args.link} ...", flush=True)
     scraper = netlocs[parse_url.netloc](args.link)
 
     if args.save:
@@ -43,6 +44,7 @@ async def main() -> None:
     downloader = Downloader(urls, folder_path / Path(args.folder))
     await downloader.download_all()
     media_seperation(downloader.folder)
+    print(f"Done. Files are in {downloader.folder}", flush=True)
 
 
 if __name__ == "__main__":
