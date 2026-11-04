@@ -1,44 +1,123 @@
-
 # PyFapello
 
-PyFapello is a Python script for downloading galleries of images/videos from fapello.com.
+A Python script for downloading images and videos from fapello.com galleries.
 
-# Usage
+## Requirements
 
-To use PyFapello, follow these steps:
-1. Clone the repository:
+- Python 3.14 or newer
+- uv or pip
 
+## Installation
 
-2. Navigate to the project directory:
+Clone the repository and enter the project directory:
 
 ```bash
+git clone https://github.com/4kHunter/PyFapello.git
 cd PyFapello
 ```
-3. Install the requirements
-```py
+
+### Using uv
+
+Install the dependencies:
+
+```bash
+uv sync
+```
+
+### Using pip
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Install the dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
 
-4. Run the script with the following command:
-```py
+## Usage
 
-python main.py -l <fapello_link> -f <folder_name> -s
+Download a gallery using uv:
+
+```bash
+uv run python main.py -l https://fapello.com/profile-name/ -f downloads
 ```
-Replace <fapello_link> with the link to the gallery on fapello.com, and <folder_name> with the name of the folder where you want to save the downloaded files.
 
-Optional argument -s or --save can be used to save the links to the database.
+Or, with your virtual environment activated:
 
+```bash
+python main.py -l https://fapello.com/profile-name/ -f downloads
+```
 
-# Features
+To also record successfully downloaded URLs in SQLite, add `-s`:
 
-- Downloads images and videos from fapello.com galleries.
-- Allows saving links to the database for backup and to download only new content.
+```bash
+uv run python main.py -l https://fapello.com/profile-name/ -f downloads -s
+```
 
+### Arguments
 
-# How It Works
+| Argument         | Required | Description                                   |
+| ---------------- | -------- | --------------------------------------------- |
+| `-l`, `--link`   | Yes      | Profile URL                                   |
+| `-f`, `--folder` | Yes      | Download directory                            |
+| `-s`, `--save`   | No       | Record successfully downloaded URLs in SQLite |
 
-PyFapello utilizes the argparse library for command-line argument parsing. It accepts the fapello link (-l or --link), folder name (-f or --folder), and an optional flag -s or --save to save the links to the database.
+Relative download directories are resolved against the directory containing
+`main.py`. Absolute paths are also supported.
 
-The script downloads images and videos from the provided fapello link and saves them to the specified folder. It also provides a progress bar to track the download progress.
+## Features
 
-PyFapello uses a SQLite3 database to store the links. This serves two main purposes: backup of links and downloading only new content. By storing links in the database, the script can identify and download only the new content, avoiding duplicate downloads.
+- Downloads images and videos.
+- Stores images in `Images/` and videos in `Videos/`.
+- Downloads concurrently with up to 10 connections per host.
+- Tries full-size images first and falls back to the original thumbnail on HTTP 404.
+- Retries selected network errors and temporary HTTP failures.
+- Continues downloading other files when an individual download fails.
+- Displays download progress.
+- Gives distinct URLs with colliding filenames unique names within a download run.
+
+## Database
+
+With `--save`, successfully downloaded URLs are recorded in `fapello.db`
+in the current working directory.
+
+The database stores the selected full-size or thumbnail URL. Failed downloads
+are not recorded, and duplicate database entries are ignored.
+
+The database does not currently filter future downloads. Running the script
+again downloads the gallery again and may replace existing files.
+
+## Development
+
+Install development dependencies:
+
+```bash
+uv sync --dev
+```
+
+Run tests with statement and branch coverage:
+
+```bash
+uv run pytest
+```
+
+Run lint, formatting and type checks:
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright --pythonpath .venv/bin/python
+```
+
+Tests use mocks and a local HTTP server without downloading from the live site.
+
+After changing runtime dependencies, regenerate `requirements.txt`:
+
+```bash
+uv export --format requirements-txt --no-hashes --no-dev --no-emit-project -o requirements.txt
+```

@@ -3,17 +3,19 @@ from types import TracebackType
 
 
 class Database:
-
     def __init__(self) -> None:
         self.connection = sqlite3.connect("fapello.db")
         self.cursor = self.connection.cursor()
         self.create_table()
 
-    def __enter__(self) -> "Database":
+    def __enter__(self) -> Database:
         return self
 
     def __exit__(
-        self, exc_type: type[Exception], exc_val: Exception, exc_tb: TracebackType
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> None:
         self.connection.close()
 
@@ -28,17 +30,12 @@ class Database:
             """
         )
 
-    def insert(self, link: str) -> None:
-        self.cursor.execute(
+    def insert_many(self, links: list[str]) -> None:
+        self.cursor.executemany(
             """
             INSERT INTO fapello (link) VALUES (?)
+            ON CONFLICT(link) DO NOTHING
             """,
-            (link,),
+            [(link,) for link in links],
         )
         self.connection.commit()
-
-    def get_existing_urls(self, urls: list[str]) -> list[str]:
-        placeholders = ",".join("?" for _ in urls)
-        query = f"SELECT link FROM fapello WHERE link IN ({placeholders})"  # noqa: S608
-        self.cursor.execute(query, urls)
-        return [row[0] for row in self.cursor.fetchall()]
