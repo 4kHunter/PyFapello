@@ -1,85 +1,121 @@
 import asyncio
-from urllib.parse import urlparse
+import logging
+from collections.abc import AsyncIterator
+from urllib.parse import urljoin, urlparse
 
-import aiohttp
 from bs4 import BeautifulSoup
-from .database import Database
+from niquests.exceptions import ChunkedEncodingError, ConnectionError as NiquestsConnectionError, HTTPError, Timeout
+
+from .http_client import BaseHttpClient, CloudflareChallengeError
+
+logger = logging.getLogger(__name__)
 
 
-class FappeloScraper:
-    BASE_URL: str = "https://fapello.com/ajax/model/{name}/"
+class FappeloScraper(BaseHttpClient):
+    BASE_URL = "https://fapello.com/ajax/model/{name}/"
 
-    def __init__(self, link: str) -> None:
+    def __init__(
+        self,
+        link: str,
+        timeout: float = 30,
+        max_connections: int = 10,
+    ) -> None:
+        super().__init__(timeout=timeout, max_connections=max_connections)
         self.link = link
 
+    async def fetch_urls(self) -> list[str]:
+        image_urls: dict[str, None] = {}
+        video_urls: dict[str, None] = {}
+        visited_video_pages: set[str] = set()
+
+        async for page_url, soup in self.iter_pages():
+            image_urls.update(dict.fromkeys(self.get_image_urls(soup, page_url)))
+
+            video_pages = self.get_video_pages(soup, page_url)
+            new_video_pages = sorted(video_pages - visited_video_pages)
+
+            results = await asyncio.gather(*(self.fetch_video_urls_safely(url) for url in new_video_pages))
+
+            for urls in results:
+                video_urls.update(dict.fromkeys(urls))
+
+            visited_video_pages.update(new_video_pages)
+
+        return list(dict.fromkeys([*image_urls, *video_urls]))
+
+    async def iter_pages(self) -> AsyncIterator[tuple[str, BeautifulSoup]]:
+        base_url = self.BASE_URL.format(name=self.get_model_name())
+        page = 1
+        seen_pages: set[tuple[tuple[str, str], ...]] = set()
+
+        while True:
+            url = f"{base_url}page-{page}/"
+            html = await self.get_response(url)
+
+            if not html.strip():
+                return
+
+            soup = self.get_soup(html)
+
+            signature = tuple(
+                (str(anchor["href"]), str(image["src"]))
+                for anchor in soup.find_all("a", href=True)
+                for image in anchor.find_all("img", src=True)
+            )
+
+            if not signature or signature in seen_pages:
+                return
+
+            seen_pages.add(signature)
+
+            yield url, soup
+            page += 1
+
+    async def fetch_video_urls_safely(self, page_url: str) -> list[str]:
+        try:
+            return await self.fetch_video_urls(page_url)
+        except (
+            CloudflareChallengeError,
+            HTTPError,
+            ChunkedEncodingError,
+            NiquestsConnectionError,
+            Timeout,
+            TimeoutError,
+        ) as exc:
+            logger.warning("Skipping video page %s: %s", page_url, exc)
+            return []
+
+    async def fetch_video_urls(self, page_url: str) -> list[str]:
+        html = await self.get_response(page_url)
+        soup = self.get_soup(html)
+
+        return [urljoin(page_url, str(source["src"])) for source in soup.find_all("source", src=True)]
+
+    def get_image_urls(self, soup: BeautifulSoup, base_url: str) -> list[str]:
+        urls: list[str] = []
+
+        for anchor in soup.find_all("a", href=True):
+            if anchor.select_one('img[src*="icon-play"]') is not None:
+                continue
+
+            image = anchor.find("img", src=True)
+            if image is None:
+                continue
+
+            src = str(image["src"])
+            urls.append(urljoin(base_url, src))
+
+        return urls
+
+    def get_video_pages(self, soup: BeautifulSoup, base_url: str) -> set[str]:
+        return {
+            urljoin(base_url, str(anchor["href"]))
+            for anchor in soup.find_all("a", href=True)
+            if anchor.select_one('img[src*="icon-play"]') is not None
+        }
+
     def get_model_name(self) -> str:
-        return urlparse(self.link).path
+        return urlparse(self.link).path.strip("/")
 
     def get_soup(self, html: str) -> BeautifulSoup:
         return BeautifulSoup(html, "html.parser")
-
-    async def get_response(self, url: str) -> str:
-        sem = asyncio.Semaphore(10)
-        async with sem, aiohttp.ClientSession() as session, session.get(
-            url
-        ) as response:
-            return await response.text()
-
-    async def fetch_urls(self) -> list[str]:
-        video_urls: list[str] = []
-        image_urls: list[str] = []
-        page = 1
-
-        while True:
-            model_name = self.get_model_name()
-            ajax_url = f"{self.BASE_URL.format(name=model_name)}page-{page}/"
-            response = await self.get_response(ajax_url)
-
-            if not response:
-                break
-
-            soup = self.get_soup(response)
-
-            image_anchors = {
-                img["src"].replace("_300px", "")
-                for img in soup.findAll("img")
-                if "icon-play" not in img["src"]
-            }
-
-            image_urls.extend(list(image_anchors))
-
-            icon_anchors = {
-                anchors["href"]
-                for anchors in soup.findAll("a", href=True)
-                for img in anchors.findAll("img")
-                if "icon-play" in img["src"]
-            }
-
-            if icon_anchors:
-                response_videos = await asyncio.gather(
-                    *[self.get_response(url) for url in icon_anchors]
-                )
-                video_soups = [self.get_soup(response) for response in response_videos]
-
-                video_anchors = {
-                    video["src"]
-                    for video_soup in video_soups
-                    for video in video_soup.findAll("source")
-                }
-
-                video_urls.extend(list(video_anchors))
-
-            page += 1
-
-        return image_urls + video_urls
-
-    async def save_to_database(self) -> list[str]:
-        urls = await self.fetch_urls()
-        if not urls:
-            return []
-        with Database() as db:
-            existing_urls = db.get_existing_urls(urls)
-            non_existing_urls = [url for url in urls if url not in existing_urls]
-            for filename in non_existing_urls:
-                db.insert(filename)
-        return non_existing_urls
